@@ -115,6 +115,7 @@ hidden_imports = [
     "src.api_client", "src.config_manager",
     "src.database", "src.widgets", "src.styles", "src.workers",
     "src.usage_downloader", "src.usage_importer", "src.usage_recorder",
+    "src.sync_diagnostic",
     "src.tray",
 ]
 

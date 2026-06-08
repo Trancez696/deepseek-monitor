@@ -155,7 +155,70 @@ $env:DEEPSEEK_API_KEY="你的 API Key"
 .\.venv\Scripts\python.exe -m src.usage_downloader --clear-login
 ```
 
-打包版自动同步优先使用 Windows 默认浏览器对应的 Edge / Chrome。如果默认浏览器不是 Playwright 可控的 Chromium 系浏览器，会继续尝试 Microsoft Edge、Google Chrome，最后尝试 Playwright Chromium。
+打包版自动同步优先使用 Windows 默认浏览器对应的 Edge / Chrome。
+
+## 自动同步诊断
+
+当自动同步失败时，软件会生成结构化的诊断信息，帮助你快速定位问题。
+
+### 诊断类型
+
+| 诊断码 | 标题 | 常见原因 |
+|---|---|---|
+| BROWSER_MISSING | 自动同步组件未安装 | 系统没有 Edge/Chrome，Playwright Chromium 也未打包 |
+| NEED_LOGIN | 需要登录 DeepSeek | 登录状态过期或未登录 |
+| PAGE_TIMEOUT | 页面加载超时 | 网络不稳定或代理配置问题 |
+| EXPORT_BUTTON_NOT_FOUND | DeepSeek 页面结构变化 | DeepSeek 更新了页面布局 |
+| DOWNLOAD_TIMEOUT | 导出文件下载超时 | 网络较慢或页面响应异常 |
+| DOWNLOAD_FILE_INVALID | 下载文件无效 | 下载的文件不存在或为空 |
+| PARSE_FAILED | 用量文件解析失败 | 文件格式不对 |
+| BROWSER_CONNECTION_LOST | 浏览器连接中断 | 网络波动或浏览器被关闭 |
+
+### UI 诊断详情
+
+同步失败后，界面会显示：
+
+1. **状态栏**显示中文失败原因
+2. **"打开登录窗口"**按钮（需登录时）
+3. **"诊断详情"**按钮（点击打开诊断弹窗）
+
+诊断弹窗包含：
+- 失败标题和原因
+- 解决建议
+- 技术细节
+- 同步阶段日志
+- 操作按钮：重试同步 / 打开登录窗口 / 手动导入 / 打开诊断文件夹 / 打开日志
+
+### 诊断文件
+
+诊断信息保存到：
+
+```text
+%LOCALAPPDATA%\DeepSeek Monitor\diagnostics\
+```
+
+包括：
+- `sync_failed_YYYYMMDD_HHMMSS.png` — 页面截图
+- `sync_failed_YYYYMMDD_HHMMSS.html` — 页面 HTML
+- `sync_failed_YYYYMMDD_HHMMSS.json` — 诊断 JSON
+
+> 诊断文件可能包含 DeepSeek Usage 页面内容，请勿随意公开上传。
+> 程序不会在诊断文件或日志中保存 Cookie、API Key 或密码。
+
+### 命令行诊断
+
+```powershell
+cd "D:\DeepSeek Monitor\deepseek-monitor"
+.\.venv\Scripts\python.exe -m src.usage_downloader --diagnose
+```
+
+输出：
+1. Playwright 模块状态
+2. 浏览器可用性
+3. 用户数据路径
+4. 能否打开 DeepSeek Usage 页面
+5. 是否已登录
+6. 能否找到导出按钮
 
 ## 系统托盘
 

@@ -60,8 +60,14 @@ def get_logs_dir() -> Path:
     return get_app_data_dir() / "logs"
 
 
+def get_diagnostics_dir() -> Path:
+    """返回诊断文件目录（截图、HTML、诊断 JSON）。"""
+    return get_app_data_dir() / "diagnostics"
+
+
 def ensure_app_data_dirs() -> None:
     """创建所有用户数据子目录。"""
     get_browser_profile_dir().mkdir(parents=True, exist_ok=True)
     get_exports_dir().mkdir(parents=True, exist_ok=True)
     get_logs_dir().mkdir(parents=True, exist_ok=True)
+    get_diagnostics_dir().mkdir(parents=True, exist_ok=True)

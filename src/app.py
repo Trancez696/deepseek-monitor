@@ -31,13 +31,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.app_data import get_logs_dir
+from src.app_data import get_diagnostics_dir, get_logs_dir
 from src.api_client import BalanceResult
 from src.autostart_manager import AutoStartError, AutoStartManager
 from src.config_manager import ConfigManager
 from src.database import UsageDatabase
 from src.styles import APP_STYLE
+from src.sync_diagnostic import SyncDiagnostic, get_phase_log
 from src.usage_downloader import (
+    BrowserConnectionLostError,
     BrowserNotInstalledError,
     check_playwright_browser_available,
     clear_browser_profile,
@@ -193,6 +195,153 @@ class SettingsDialog(QDialog):
             self.clear_login_requested.emit()
 
 
+class SyncDiagnosticDialog(QDialog):
+    """同步诊断详情弹窗。"""
+
+    open_login_requested = Signal()
+    retry_sync_requested = Signal()
+    manual_import_requested = Signal()
+
+    def __init__(
+        self,
+        diagnostic: SyncDiagnostic,
+        phase_log: list[str] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.diagnostic = diagnostic
+        self.phase_log = phase_log or []
+        self.setWindowTitle("同步诊断详情")
+        self.setFixedSize(460, 420)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        # 标题
+        title_label = QLabel(diagnostic.title)
+        title_label.setStyleSheet(
+            "font-size: 18px; font-weight: 700; color: #ffffff;"
+        )
+        layout.addWidget(title_label)
+
+        # 原因
+        reason_label = QLabel(diagnostic.message)
+        reason_label.setWordWrap(True)
+        reason_label.setStyleSheet("font-size: 13px; color: rgba(255,255,255,0.82);")
+        layout.addWidget(reason_label)
+
+        # 建议
+        suggestion_label = QLabel(f"建议：{diagnostic.suggestion}")
+        suggestion_label.setWordWrap(True)
+        suggestion_label.setStyleSheet(
+            "font-size: 13px; color: #4adebe; padding: 8px 0;"
+        )
+        layout.addWidget(suggestion_label)
+
+        # 技术细节（可折叠）
+        if diagnostic.technical_detail:
+            detail_label = QLabel(f"技术细节：{diagnostic.technical_detail}")
+            detail_label.setWordWrap(True)
+            detail_label.setStyleSheet(
+                "font-size: 11px; color: rgba(255,255,255,0.50); "
+                "padding: 8px; background: rgba(0,0,0,0.20); border-radius: 6px;"
+            )
+            layout.addWidget(detail_label)
+
+        # 诊断文件路径
+        diag_paths = []
+        if diagnostic.screenshot_path:
+            diag_paths.append(f"截图：{diagnostic.screenshot_path}")
+        if diagnostic.html_path:
+            diag_paths.append(f"HTML：{diagnostic.html_path}")
+        if diag_paths:
+            paths_text = "\n".join(diag_paths)
+            paths_label = QLabel(paths_text)
+            paths_label.setWordWrap(True)
+            paths_label.setStyleSheet(
+                "font-size: 11px; color: rgba(255,255,255,0.40);"
+            )
+            layout.addWidget(paths_label)
+
+        # 阶段日志
+        if self.phase_log:
+            log_text = "同步日志：\n" + "\n".join(self.phase_log)
+            log_label = QLabel(log_text)
+            log_label.setWordWrap(True)
+            log_label.setStyleSheet(
+                "font-size: 11px; color: rgba(255,255,255,0.45); "
+                "padding: 6px; background: rgba(0,0,0,0.15); border-radius: 4px;"
+                "font-family: monospace;"
+            )
+            log_label.setMaximumHeight(100)
+            layout.addWidget(log_label)
+
+        # 按钮行
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+
+        if diagnostic.can_retry:
+            retry_btn = QPushButton("重试同步")
+            retry_btn.setObjectName("primaryButton")
+            retry_btn.clicked.connect(self._on_retry)
+            btn_layout.addWidget(retry_btn)
+
+        if diagnostic.need_login:
+            login_btn = QPushButton("打开登录窗口")
+            login_btn.setObjectName("primaryButton")
+            login_btn.clicked.connect(self._on_open_login)
+            btn_layout.addWidget(login_btn)
+
+        if diagnostic.can_manual_import:
+            import_btn = QPushButton("手动导入")
+            import_btn.setObjectName("primaryButton")
+            import_btn.clicked.connect(self._on_manual_import)
+            btn_layout.addWidget(import_btn)
+
+        # 打开诊断文件夹
+        if diagnostic.screenshot_path or diagnostic.html_path:
+            open_diag_btn = QPushButton("打开诊断文件夹")
+            open_diag_btn.setObjectName("primaryButton")
+            open_diag_btn.clicked.connect(
+                lambda: self._open_folder(str(get_diagnostics_dir()))
+            )
+            btn_layout.addWidget(open_diag_btn)
+
+        # 打开日志
+        open_log_btn = QPushButton("打开日志")
+        open_log_btn.setObjectName("primaryButton")
+        open_log_btn.clicked.connect(
+            lambda: self._open_folder(str(get_logs_dir()))
+        )
+        btn_layout.addWidget(open_log_btn)
+
+        close_btn = QPushButton("关闭")
+        close_btn.setObjectName("primaryButton")
+        close_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(close_btn)
+
+        layout.addLayout(btn_layout)
+
+    def _on_retry(self) -> None:
+        self.retry_sync_requested.emit()
+        self.accept()
+
+    def _on_open_login(self) -> None:
+        self.open_login_requested.emit()
+        self.accept()
+
+    def _on_manual_import(self) -> None:
+        self.manual_import_requested.emit()
+        self.accept()
+
+    @staticmethod
+    def _open_folder(path: str) -> None:
+        """在文件管理器中打开目录。"""
+        import subprocess
+        subprocess.Popen(["explorer", path], shell=True)
+
+
 class DeepSeekMonitorWindow(QMainWindow):
     """DeepSeek Monitor 主窗口。"""
 
@@ -214,6 +363,7 @@ class DeepSeekMonitorWindow(QMainWindow):
         self.imported_usage_stats: dict | None = None
         self.last_balance_update_text = ""
         self.last_usage_update_text = ""
+        self.last_sync_diagnostic: SyncDiagnostic | None = None
         self.tray_icon: QSystemTrayIcon | None = None
         self.tray_status_action: QAction | None = None
         self._allow_exit = False
@@ -428,9 +578,16 @@ class DeepSeekMonitorWindow(QMainWindow):
         else:
             self.login_button.hide()
 
+        self.diag_button = QPushButton("诊断详情")
+        self.diag_button.setObjectName("loginActionButton")
+        self.diag_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.diag_button.clicked.connect(self._show_sync_diagnostic)
+        self.diag_button.hide()
+
         title_row = QHBoxLayout()
         title_row.addWidget(title_label)
         title_row.addStretch()
+        title_row.addWidget(self.diag_button)
         title_row.addWidget(self.login_button)
 
         layout.addLayout(title_row)
@@ -536,6 +693,7 @@ class DeepSeekMonitorWindow(QMainWindow):
         self.usage_sync_worker.success.connect(self._handle_usage_sync_success)
         self.usage_sync_worker.need_login.connect(self._handle_usage_sync_need_login)
         self.usage_sync_worker.browser_not_installed.connect(self._handle_browser_not_installed)
+        self.usage_sync_worker.diagnostic.connect(self._handle_sync_diagnostic)
         self.usage_sync_worker.failed.connect(self._handle_usage_sync_failed)
         self.usage_sync_worker.finished.connect(self._finish_usage_sync_worker)
         self.usage_sync_worker.start()
@@ -696,6 +854,32 @@ class DeepSeekMonitorWindow(QMainWindow):
         self.login_button.show()
         self.login_button.setEnabled(True)
         self.refresh_needs_login = True
+
+    def _handle_sync_diagnostic(self, diagnostic: SyncDiagnostic) -> None:
+        """接收后台同步的诊断信息并保存。"""
+        self.last_sync_diagnostic = diagnostic
+        if not diagnostic.ok:
+            self.diag_button.show()
+        if diagnostic.downloaded_file:
+            self._write_app_log(f"Sync diagnostic: {diagnostic.code}, "
+                                f"downloaded={diagnostic.downloaded_file}")
+
+    def _show_sync_diagnostic(self) -> None:
+        """打开诊断详情弹窗。"""
+        diagnostic = self.last_sync_diagnostic
+        if diagnostic is None:
+            QMessageBox.information(self, "诊断", "暂无诊断信息。")
+            return
+
+        dialog = SyncDiagnosticDialog(
+            diagnostic=diagnostic,
+            phase_log=get_phase_log(),
+            parent=self,
+        )
+        dialog.open_login_requested.connect(self.open_login_window)
+        dialog.retry_sync_requested.connect(lambda: self.refresh_all(trigger="manual"))
+        dialog.manual_import_requested.connect(self.import_usage_file)
+        dialog.exec()
 
     def _finish_usage_sync_worker(self) -> None:
         """清理静默同步线程状态。"""

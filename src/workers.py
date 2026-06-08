@@ -8,11 +8,10 @@ from __future__ import annotations
 from PySide6.QtCore import QThread, Signal
 
 from src.api_client import DeepSeekApiClient, DeepSeekApiError
+from src.sync_diagnostic import SyncDiagnostic, diagnose_sync_error
 from src.usage_downloader import (
     BrowserNotInstalledError,
-    NeedLoginError,
-    UsageDownloadError,
-    download_usage_export_silent,
+    download_with_diagnostics,
     open_login_window,
 )
 from src.usage_importer import UsageImportError, import_usage_file
@@ -39,7 +38,6 @@ class BalanceRefreshWorker(QThread):
         except DeepSeekApiError as error:
             self.failed.emit(str(error))
             return
-
         self.success.emit(result)
 
 
@@ -50,33 +48,41 @@ class UsageSilentSyncWorker(QThread):
     failed = Signal(str)
     need_login = Signal(str)
     browser_not_installed = Signal(str)
+    diagnostic = Signal(object)  # SyncDiagnostic
     progress = Signal(str)
 
     def run(self) -> None:
         """执行静默同步。"""
+        self.progress.emit("正在后台同步用量...")
+
+        file_path, diag = download_with_diagnostics()
+        self.diagnostic.emit(diag)
+
+        if not diag.ok:
+            if diag.need_login:
+                self.need_login.emit(diag.suggestion)
+                return
+            if diag.code == "BROWSER_MISSING":
+                self.browser_not_installed.emit(diag.message)
+                return
+            self.failed.emit(diag.message)
+            return
+
+        # 下载成功，解析文件
+        if not file_path:
+            self.failed.emit("同步未返回文件路径")
+            return
+
+        self.progress.emit("正在解析用量文件...")
         try:
-            self.progress.emit("正在后台同步用量...")
-            file_path = download_usage_export_silent()
-            self.progress.emit("正在解析用量文件...")
             stats = import_usage_file(file_path)
-        except NeedLoginError as error:
-            self.need_login.emit(str(error))
-            return
-        except BrowserNotInstalledError as error:
-            self.browser_not_installed.emit(str(error))
-            return
         except UsageImportError as error:
+            diag = diagnose_sync_error(error, phase="parse_usage_file")
+            self.diagnostic.emit(diag)
             self.failed.emit(f"导入解析失败：{error}")
             return
-        except UsageDownloadError as error:
-            self.failed.emit(str(error))
-            return
-        except Exception as error:  # noqa: BLE001
-            message = str(error)
-            if "Browser.close" in message or "Connection closed" in message:
-                self.failed.emit("自动同步失败：浏览器同步连接中断，可重试或手动导入")
-                return
-            self.failed.emit(f"自动同步失败：{message}")
+        except Exception as error:
+            self.failed.emit(f"解析失败：{error}")
             return
 
         self.success.emit(stats)
@@ -88,6 +94,7 @@ class LoginWindowWorker(QThread):
     success = Signal()
     failed = Signal(str)
     browser_not_installed = Signal(str)
+    diagnostic = Signal(object)
     progress = Signal(str)
 
     def run(self) -> None:
@@ -96,13 +103,14 @@ class LoginWindowWorker(QThread):
             self.progress.emit("请在打开的窗口中登录 DeepSeek...")
             open_login_window()
         except BrowserNotInstalledError as error:
+            diag = diagnose_sync_error(error)
+            self.diagnostic.emit(diag)
             self.browser_not_installed.emit(str(error))
             return
         except UsageDownloadError as error:
             self.failed.emit(str(error))
             return
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             self.failed.emit(f"登录窗口打开失败：{error}")
             return
-
         self.success.emit()
