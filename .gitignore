@@ -1,0 +1,28 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+.venv-python37-backup/
+venv/
+env/
+
+# Local app data — do not commit real secrets or usage records
+config.json
+usage.db
+auth_state.json
+data/
+
+# Log files
+*.log
+
+# Build output
+build/
+dist/
+
+# Editor and OS files
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

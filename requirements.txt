@@ -1,0 +1,5 @@
+PySide6-Essentials==6.7.3
+requests==2.32.3
+pyinstaller==6.10.0
+playwright==1.49.1
+keyring==25.5.0
