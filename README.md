@@ -42,7 +42,6 @@ deepseek-monitor/
     database.py             # SQLite 本地用量数据库
     usage_downloader.py     # Playwright 静默同步/登录窗口
     usage_importer.py       # Usage ZIP/CSV 解析
-    usage_recorder.py       # 真实 API 调用 token 用量记录
     workers.py              # 后台线程
     widgets.py              # 自定义 UI 组件
     styles.py               # QSS 样式
@@ -412,67 +411,6 @@ cd "D:\DeepSeek Monitor\deepseek-monitor"
 | 配置 | JSON + Windows Credential Manager |
 | 打包 | PyInstaller 6.10.0 |
 
-## 记录真实 API 调用用量
-
-在你自己写的 DeepSeek API 调用脚本中引入 `usage_recorder`，每次调用的 token 数会自动写入 `usage.db`，打开 DeepSeek Monitor 就能看到实时统计。
-
-### 方式 1：从 API 响应自动提取（推荐）
-
-```python
-import requests
-from src.usage_recorder import record_from_response
-
-response = requests.post(
-    "https://api.deepseek.com/chat/completions",
-    headers={"Authorization": "Bearer sk-xxx"},
-    json={"model": "deepseek-chat", "messages": [...]},
-)
-data = response.json()
-record_from_response(data)  # 自动提取 usage 并写入 DB
-```
-
-### 方式 2：手动记录
-
-```python
-from src.usage_recorder import record_usage
-
-record_usage("deepseek-chat", input_tokens=100, output_tokens=50)
-# 自动估算费用（按 DeepSeek 官方定价）
-```
-
-### 方式 3：批量记录（上下文管理器）
-
-```python
-from src.usage_recorder import UsageRecorder
-
-with UsageRecorder() as recorder:
-    for resp in api_responses:
-        recorder.record_from_response(resp)
-    # 退出上下文时自动批量写入
-```
-
-### 方式 4：流式响应
-
-```python
-from src.usage_recorder import record_from_streaming_chunks
-
-chunks = [...]  # 收集到的所有 SSE chunk
-record_from_streaming_chunks(chunks)
-```
-
-### 支持的模型定价
-
-| 模型 | 输入（¥/1K tokens） | 输出（¥/1K tokens） |
-|---|---|---|
-| deepseek-chat / V4 Flash | 0.0005 | 0.0010 / 0.0020 |
-| deepseek-v4-pro | 0.0020 | 0.0080 |
-| deepseek-reasoner / deepseek-r1 | 0.0020 | 0.0080 |
-
-未列出的模型使用默认定价（输入 0.001，输出 0.002）。
-
-写入 `usage.db` 后，DeepSeek Monitor 下次刷新时会自动显示新数据。
-
 ## 后续目标
-- 优化自动同步失败诊断
 - 可选制作无 Playwright 的 Lite 版，进一步减小打包体积
 - 将当前托盘逻辑从 `app.py` 整理到 `tray.py`
