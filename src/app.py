@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QColor, QIcon, QLinearGradient, QPainter
+from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -23,13 +23,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QPushButton,
-    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
+
+from src.tray import TrayManager
 
 from src.app_data import get_diagnostics_dir, get_logs_dir
 from src.api_client import BalanceResult
@@ -364,8 +364,7 @@ class DeepSeekMonitorWindow(QMainWindow):
         self.last_balance_update_text = ""
         self.last_usage_update_text = ""
         self.last_sync_diagnostic: SyncDiagnostic | None = None
-        self.tray_icon: QSystemTrayIcon | None = None
-        self.tray_status_action: QAction | None = None
+        self.tray_manager: TrayManager | None = None
         self._allow_exit = False
 
         self.setWindowTitle("DeepSeek Monitor")
@@ -378,7 +377,7 @@ class DeepSeekMonitorWindow(QMainWindow):
 
         self._drag_position = QPoint()
         self._build_ui()
-        self._setup_tray_icon()
+        self._init_tray_manager()
         self.apply_taskbar_visibility()
         self.refresh_usage_data()
         self.setup_refresh_timer()
@@ -400,54 +399,16 @@ class DeepSeekMonitorWindow(QMainWindow):
         else:
             self.app_icon = QIcon()
 
-    def _setup_tray_icon(self) -> None:
-        """创建系统托盘图标和右键菜单。"""
-        if not QSystemTrayIcon.isSystemTrayAvailable():
-            return
-
-        self.tray_icon = QSystemTrayIcon(self.app_icon, self)
-        self.tray_icon.setToolTip("DeepSeek Monitor")
-
-        menu = QMenu(self)
-        self.tray_status_action = QAction(self._tray_mode_text(), self)
-        self.tray_status_action.setEnabled(False)
-        show_action = QAction("显示窗口", self)
-        refresh_action = QAction("立即刷新", self)
-        settings_action = QAction("打开设置", self)
-        quit_action = QAction("退出程序", self)
-
-        show_action.triggered.connect(self.show_window_from_tray)
-        refresh_action.triggered.connect(lambda: self.refresh_all(trigger="manual"))
-        settings_action.triggered.connect(self._open_settings)
-        quit_action.triggered.connect(self.exit_application)
-
-        menu.addAction(self.tray_status_action)
-        menu.addSeparator()
-        menu.addAction(show_action)
-        menu.addAction(refresh_action)
-        menu.addAction(settings_action)
-        menu.addSeparator()
-        menu.addAction(quit_action)
-
-        self.tray_icon.setContextMenu(menu)
-        self.tray_icon.activated.connect(self._handle_tray_activated)
-        self.tray_icon.show()
-
-    def _tray_mode_text(self) -> str:
-        """返回托盘菜单中的当前显示模式文本。"""
-        if self.config.hide_taskbar_icon:
-            return "当前模式：仅托盘显示"
-        return "当前模式：任务栏 + 托盘"
-
-    def _update_tray_mode_text(self) -> None:
-        """刷新托盘菜单中的显示模式文本。"""
-        if self.tray_status_action is not None:
-            self.tray_status_action.setText(self._tray_mode_text())
-
-    def _handle_tray_activated(self, reason) -> None:
-        """双击托盘图标时显示窗口。"""
-        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            self.show_window_from_tray()
+    def _init_tray_manager(self) -> None:
+        """创建系统托盘管理器。"""
+        self.tray_manager = TrayManager(
+            icon=self.app_icon,
+            parent=self,
+            on_show=self.show_window_from_tray,
+            on_refresh=lambda: self.refresh_all(trigger="manual"),
+            on_settings=self._open_settings,
+            on_quit=self.exit_application,
+        )
 
     def _build_ui(self) -> None:
         """创建窗口内的所有控件。"""
@@ -1075,7 +1036,8 @@ class DeepSeekMonitorWindow(QMainWindow):
         was_visible = self.isVisible()
 
         self.setWindowFlag(Qt.WindowType.Tool, hide_taskbar)
-        self._update_tray_mode_text()
+        if self.tray_manager:
+            self.tray_manager.set_mode_text(hide_taskbar)
         self._write_taskbar_log(hide_taskbar)
 
         if was_visible:
@@ -1091,8 +1053,8 @@ class DeepSeekMonitorWindow(QMainWindow):
     def exit_application(self) -> None:
         """通过托盘菜单真正退出程序。"""
         self._allow_exit = True
-        if self.tray_icon is not None:
-            self.tray_icon.hide()
+        if self.tray_manager:
+            self.tray_manager.hide_icon()
         QApplication.quit()
 
     def _write_taskbar_log(self, hidden: bool) -> None:
@@ -1113,7 +1075,7 @@ class DeepSeekMonitorWindow(QMainWindow):
 
     def should_start_hidden(self) -> bool:
         """判断启动时是否直接进入托盘。"""
-        if self.tray_icon is None:
+        if self.tray_manager is None or not self.tray_manager.available:
             return False
         return bool(self.started_from_autostart or self.config.start_minimized_to_tray)
 
@@ -1221,14 +1183,14 @@ class DeepSeekMonitorWindow(QMainWindow):
             event.accept()
             return
 
-        if self.tray_icon is not None:
+        if self.tray_manager and self.tray_manager.available:
             event.ignore()
             self.hide()
             return
 
         self._allow_exit = True
-        if self.tray_icon is not None:
-            self.tray_icon.hide()
+        if self.tray_manager:
+            self.tray_manager.hide_icon()
         event.accept()
         QApplication.quit()
 
