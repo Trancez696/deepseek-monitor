@@ -6,8 +6,8 @@
 
 瘦身打包说明：
     默认不把 Playwright Chromium 打进包里。
-    自动同步优先使用用户电脑已安装的 Google Chrome。
-    如果没有 Chrome，用户可额外安装 Playwright Chromium。
+    自动同步优先使用系统默认 Edge / Chrome。
+    如果没有可控浏览器，用户可额外安装 Playwright Chromium。
 
 推荐使用 scripts/build_exe.ps1 一键打包。
 """
@@ -111,7 +111,7 @@ hidden_imports = [
     "sqlite3",
 
     # 项目内部模块
-    "src", "src.app_data", "src.app",
+    "src", "src.app_data", "src.app", "src.autostart_manager",
     "src.api_client", "src.config_manager",
     "src.database", "src.widgets", "src.styles", "src.workers",
     "src.usage_downloader", "src.usage_importer", "src.tray",

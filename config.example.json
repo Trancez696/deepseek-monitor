@@ -1,11 +1,14 @@
 {
   "api_base_url": "https://api.deepseek.com",
   "auto_start": false,
+  "autostart_enabled": false,
+  "start_minimized_to_tray": false,
   "refresh_interval_minutes": 10,
   "auto_refresh_on_startup": true,
   "scheduled_refresh_enabled": true,
   "silent_usage_sync_enabled": true,
   "hide_taskbar_icon": false,
-  "balance_warning_threshold": 5.0,
-  "balance_critical_threshold": 1.0
+  "always_on_top": false,
+  "balance_warning_yellow": 5.0,
+  "balance_warning_red": 1.0
 }

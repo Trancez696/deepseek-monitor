@@ -1,70 +1,81 @@
 # DeepSeek Monitor
 
-DeepSeek Monitor 是一个 Windows 桌面小工具，用来查看 DeepSeek API 账户余额和本地用量趋势。
+DeepSeek Monitor 是一个 Windows 桌面小工具，用来查看 DeepSeek API 账户余额、导入或同步 DeepSeek Usage 用量数据，并展示本月消耗、模型 tokens 和最近 7 天趋势。
 
-- 余额查询（DeepSeek API `/user/balance`）
-- 用量自动静默同步（Playwright headless 下载 Usage 导出）
-- 用量手动导入（DeepSeek 网页导出的 ZIP / CSV）
-- 今天/本月消耗统计 + 7 天趋势图表
-- API Key 保存到 Windows Credential Manager
-- 定时自动刷新 + 余额预警
+## 当前功能
+
+- 实时查询 DeepSeek API 账户余额：`GET /user/balance`
+- 显示账户状态、总余额、充值余额、赠送余额
+- 余额偏低/严重不足提醒
+- 手动导入 DeepSeek Usage 导出的 ZIP / CSV 文件
+- 后台静默同步 DeepSeek Usage 导出文件
+- 首次登录使用可见浏览器窗口，后续同步使用 headless 后台模式
+- 今日消耗、本月消耗、模型 tokens、模型费用、请求次数统计
+- 最近 7 天消费趋势柱状图
+- API Key 优先保存到 Windows Credential Manager
+- 配置保存到 `%LOCALAPPDATA%\DeepSeek Monitor\config.json`
+- 定时刷新、启动后自动刷新
+- Windows 当前用户开机自启
+- 启动后最小化到系统托盘
+- 系统托盘图标和托盘菜单
+- 可选隐藏 Windows 任务栏图标，仅显示托盘图标
+- PyInstaller onedir 打包为 Windows EXE
 
 ## 项目结构
 
 ```text
 deepseek-monitor/
-  main.py                   # 程序入口
+  main.py
   requirements.txt
   README.md
   .gitignore
-  DeepSeekMonitor.spec      # PyInstaller 打包配置
-  config.example.json       # 配置模板
+  DeepSeekMonitor.spec
+  config.example.json
   scripts/
-    build_exe.ps1           # 一键打包脚本
-    pyi_rth_playwright.py   # PyInstaller 运行时 hook（Playwright Chromium 路径）
+    build_exe.ps1
+    pyi_rth_playwright.py
   src/
-    app.py                  # PySide6 主窗口
-    app_data.py             # 用户数据目录管理 (%LOCALAPPDATA%)
-    api_client.py           # DeepSeek API 余额查询
-    config_manager.py       # 配置读写 (keyring + config.json)
+    app.py                  # PySide6 主窗口、托盘、设置窗口
+    app_data.py             # %LOCALAPPDATA% 用户数据目录
+    api_client.py           # DeepSeek 余额接口
+    config_manager.py       # 配置和 API Key 管理
     database.py             # SQLite 本地用量数据库
-    usage_downloader.py     # Playwright 自动同步/登录
-    usage_importer.py       # CSV / ZIP 用量文件导入
-    workers.py              # QThread 后台任务
+    usage_downloader.py     # Playwright 静默同步/登录窗口
+    usage_importer.py       # Usage ZIP/CSV 解析
+    workers.py              # 后台线程
     widgets.py              # 自定义 UI 组件
     styles.py               # QSS 样式
-    tray.py                 # 系统托盘（预留）
+    tray.py                 # 预留文件，当前托盘逻辑在 app.py
   assets/
     icon.png
     icon.ico
 ```
 
-## 用户数据保存位置
+## 用户数据位置
 
-所有用户数据统一保存到：
+程序不会把用户数据写入安装目录。所有可写数据统一保存到：
 
 ```text
 %LOCALAPPDATA%\DeepSeek Monitor\
 ```
 
-例如：
+常见文件：
 
 ```text
 C:\Users\<用户名>\AppData\Local\DeepSeek Monitor\
   ├── browser_profile\     # Playwright 浏览器登录会话
-  ├── exports\             # 静默同步下载的 Usage 导出文件
-  ├── logs\                # 运行日志（预留）
+  ├── auth_state.json      # 登录状态快照，不保存账号密码
+  ├── exports\             # 静默同步下载的 Usage 文件
+  ├── logs\app.log         # 运行日志
   ├── config.json          # 程序设置
   └── usage.db             # 本地用量数据库
 ```
 
-不在程序安装目录写入任何用户数据。
+API Key 优先保存到 Windows Credential Manager。只有系统凭据不可用时，才会 fallback 到 `config.json`。
 
----
+## 开发环境运行
 
-## 开发环境
-
-### 第一次运行
+第一次运行：
 
 ```powershell
 cd "D:\DeepSeek Monitor\deepseek-monitor"
@@ -75,137 +86,247 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe main.py
 ```
 
-### 以后每次运行
+以后运行：
 
 ```powershell
 cd "D:\DeepSeek Monitor\deepseek-monitor"
 .\.venv\Scripts\python.exe main.py
 ```
 
-### 设置 API Key
+## 设置 API Key
 
-1. 点击右上角 ⚙ 按钮
-2. 输入 DeepSeek API Key
-3. 点击保存
+1. 打开软件
+2. 点击右上角齿轮按钮
+3. 输入 DeepSeek API Key
+4. 点击保存
 
-API Key 优先保存到 Windows Credential Manager（`keyring`），如果系统凭据不可用则 fallback 到 config.json。
+不要把 API Key 写进代码。程序不会在日志或命令行输出完整 API Key。
 
-### 测试余额接口
+命令行测试余额接口：
 
 ```powershell
 $env:DEEPSEEK_API_KEY="你的 API Key"
-python -m src.api_client
+.\.venv\Scripts\python.exe -m src.api_client
 ```
 
-### 命令行测试 Usage 导入
+## Usage 数据来源
+
+余额来自 DeepSeek API 实时查询。
+
+用量数据来自两种方式：
+
+- 手动导入 DeepSeek Usage 页面导出的 ZIP / CSV
+- 使用 Playwright 后台静默下载 Usage 导出文件，再自动解析
+
+手动导入：
+
+1. 打开 DeepSeek Usage 页面：`https://platform.deepseek.com/usage`
+2. 点击页面里的导出按钮，下载 ZIP 或 CSV
+3. 在 DeepSeek Monitor 右上角点击向下箭头按钮
+4. 选择下载的 ZIP / CSV 文件
+
+命令行测试导入：
 
 ```powershell
-.\.venv\Scripts\python.exe -m src.usage_importer "下载的导出文件.zip"
+.\.venv\Scripts\python.exe -m src.usage_importer "D:\路径\usage_data.zip"
 ```
 
----
+## 自动同步 Usage
+
+自动同步使用 Playwright：
+
+- 正常刷新时使用 `headless=True`，不会弹出浏览器
+- 第一次需要登录时，软件会提示“需要登录”
+- 只有用户点击“打开登录窗口”后，才会打开可见浏览器
+- 程序不保存 DeepSeek 账号密码
+- 登录状态保存到 `browser_profile\` 和 `auth_state.json`
+
+命令行测试：
+
+```powershell
+# 静默下载测试。未登录时只提示需要登录，不会弹出浏览器。
+.\.venv\Scripts\python.exe -m src.usage_downloader --silent
+
+# 打开登录窗口，让用户手动登录。
+.\.venv\Scripts\python.exe -m src.usage_downloader --login
+
+# 清除本地登录状态。
+.\.venv\Scripts\python.exe -m src.usage_downloader --clear-login
+```
+
+打包版自动同步优先使用 Windows 默认浏览器对应的 Edge / Chrome。如果默认浏览器不是 Playwright 可控的 Chromium 系浏览器，会继续尝试 Microsoft Edge、Google Chrome，最后尝试 Playwright Chromium。
+
+## 系统托盘
+
+软件启动后会创建系统托盘图标。
+
+托盘菜单包含：
+
+- 当前模式
+- 显示窗口
+- 立即刷新
+- 打开设置
+- 退出程序
+
+设置窗口中可以勾选：
+
+```text
+隐藏任务栏图标，仅显示托盘图标
+```
+
+启用后：
+
+- 主窗口不显示在 Windows 任务栏
+- 系统托盘图标仍然可用
+- 关闭窗口会隐藏到托盘
+- 真正退出需要使用托盘菜单“退出程序”
+
+任务栏显示状态会记录到：
+
+```text
+%LOCALAPPDATA%\DeepSeek Monitor\logs\app.log
+```
+
+示例：
+
+```text
+Taskbar icon hidden: true
+Taskbar icon hidden: false
+```
+
+## 开机自启
+
+设置窗口中可以勾选：
+
+```text
+开机自启
+```
+
+软件使用当前用户注册表 Run 项实现开机自启，不需要管理员权限。
+
+注册表路径：
+
+```text
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+```
+
+启动项名称：
+
+```text
+DeepSeek Monitor
+```
+
+启动命令格式：
+
+```text
+"C:\Path\To\DeepSeek Monitor.exe" --startup
+```
+
+`--startup` 表示开机自启模式。此模式下软件默认进入系统托盘，不弹出主窗口；托盘图标仍然显示，定时刷新和启动后自动刷新仍然执行。
+
+手动检查启动项：
+
+```powershell
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "DeepSeek Monitor"
+```
+
+手动删除启动项：
+
+```powershell
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "DeepSeek Monitor" /f
+```
+
+设置窗口中也可以勾选：
+
+```text
+启动后最小化到托盘
+```
+
+启用后，即使不是开机自启启动，普通启动也会先进入托盘后台运行。
+
+## 自动刷新
+
+支持三种刷新方式：
+
+- 点击右上角刷新按钮
+- 启动后 1.5 秒自动刷新
+- 定时刷新：5 / 10 / 30 / 60 分钟
+
+刷新时会：
+
+1. 查询余额
+2. 如果启用静默同步，则后台下载 Usage 文件
+3. 解析 Usage 数据
+4. 刷新今日消耗、本月消耗、模型卡片和 7 天趋势图
+
+## 设置项
+
+当前配置包含：
+
+```json
+{
+  "api_base_url": "https://api.deepseek.com",
+  "auto_start": false,
+  "autostart_enabled": false,
+  "start_minimized_to_tray": false,
+  "refresh_interval_minutes": 10,
+  "auto_refresh_on_startup": true,
+  "scheduled_refresh_enabled": true,
+  "silent_usage_sync_enabled": true,
+  "hide_taskbar_icon": false,
+  "always_on_top": false,
+  "balance_warning_yellow": 5.0,
+  "balance_warning_red": 1.0
+}
+```
+
+说明：`auto_start` 是旧版兼容字段，新版以 `autostart_enabled` 为准。设置页会以注册表真实状态为准。
 
 ## 打包为 EXE
 
-### 前置说明
-
 当前使用瘦身打包策略：不把 Playwright Chromium 浏览器本体打进程序。
-自动同步会优先使用 Windows 默认浏览器对应的 Edge / Chrome；如果默认浏览器不是 Playwright 可控的 Chromium 系浏览器，则自动尝试 Microsoft Edge 和 Google Chrome。
 
-**运行时路径解析机制：**
+推荐使用 onedir 模式，不推荐 onefile：
 
-打包后的 EXE 通过两层保障确保 Playwright 能启动：
+- PySide6 和 Playwright 依赖文件较多
+- onefile 每次启动都要解压，启动慢
+- onedir 更稳定
 
-1. **PyInstaller 运行时 hook**（`scripts/pyi_rth_playwright.py`）：在 `main.py` 之前运行，设置 Playwright `node.exe` 路径。
-2. **模块级兜底**（`src/usage_downloader.py`）：优先识别系统默认浏览器；如果默认浏览器不是 Edge / Chrome，再尝试系统 Edge、Chrome，最后尝试 Playwright Chromium。
-
-这样可以避免把 100MB+ 的 Chromium 放进安装包里。
-
-推荐使用 **onedir** 模式（不推荐 onefile），原因：
-
-1. PySide6 和 Playwright 运行时文件较多
-2. onefile 每次启动都要解压，非常慢
-3. onedir 更稳定，PySide6 兼容性更好
-
-### 使用一键打包脚本
+一键打包：
 
 ```powershell
 cd "D:\DeepSeek Monitor\deepseek-monitor"
 powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1
 ```
 
-脚本会自动完成所有步骤，并验证打包产物没有内置 Chromium 浏览器本体。
-输出在：
-
-```text
-dist\DeepSeek Monitor\DeepSeek Monitor.exe
-```
-
-### 手动打包步骤
-
-如果要手动执行每一步：
-
-```powershell
-cd "D:\DeepSeek Monitor\deepseek-monitor"
-
-# 1. 安装依赖
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-
-# 2. 清理旧产物
-Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
-
-# 3. 打包
-.\.venv\Scripts\python.exe -m PyInstaller DeepSeekMonitor.spec --noconfirm
-```
-
-### 安装包输出结构
+输出目录：
 
 ```text
 dist\DeepSeek Monitor\
-  ├── DeepSeek Monitor.exe     # 主程序
-  └── _internal\               # Python 运行时 + 所有依赖
-      ├── playwright\
-      │   └── driver\          # node.exe，不内置 Chromium 浏览器本体
-      ├── PySide6\
-      ├── python312.dll
-      └── ...
+  ├── DeepSeek Monitor.exe
+  └── _internal\
 ```
 
-用户拿到 `DeepSeek Monitor` 文件夹后直接运行即可，无需安装 Python。自动同步优先使用电脑上的默认 Edge / Chrome；如果默认浏览器不是 Chromium 系浏览器，则会尝试系统 Edge、Chrome。手动导入 ZIP/CSV 不依赖浏览器。
+分发时要复制整个 `dist\DeepSeek Monitor` 文件夹，不要只复制单个 EXE。
 
----
+手动打包：
 
-## 运行已打包的 EXE
+```powershell
+cd "D:\DeepSeek Monitor\deepseek-monitor"
+.\.venv\Scripts\python.exe -m PyInstaller DeepSeekMonitor.spec --noconfirm
+```
 
-1. 打开 `dist\DeepSeek Monitor\DeepSeek Monitor.exe`
-2. 点击 ⚙ 设置，填写 DeepSeek API Key
-3. **首次使用自动同步**：点击"打开登录窗口"→ 在弹出浏览器中登录 DeepSeek → 关闭窗口 → 点击刷新
-4. 之后每次点击刷新都会自动静默同步用量
-
-### 常见问题
+## 常见问题
 
 | 提示 | 原因 | 解决方法 |
 |---|---|---|
-| "未找到可用浏览器" | 电脑没有 Microsoft Edge / Google Chrome，也没有 Playwright Chromium | 安装 Microsoft Edge 或 Google Chrome 后重试 |
-| "需要登录 DeepSeek 后才能自动同步用量" | 登录状态过期 | 点击"打开登录窗口"重新登录 |
-| "请先在设置中填写 API Key" | 未配置 Key | 点击 ⚙ 设置，输入 API Key |
-| 自动同步失败 | 页面结构变化或网络问题 | 使用右侧"导入"按钮手动导入 ZIP/CSV |
+| 未找到可用浏览器 | 电脑没有 Edge / Chrome，也没有 Playwright Chromium | 安装 Microsoft Edge 或 Google Chrome |
+| 需要登录 DeepSeek 后才能自动同步用量 | 登录状态缺失或过期 | 点击“打开登录窗口”重新登录 |
+| 请先在设置中填写 API Key | 没有配置 API Key | 打开设置并保存 API Key |
+| 自动同步失败 | 网络问题、页面结构变化或下载失败 | 使用右上角导入按钮手动导入 ZIP/CSV |
+| EXE 图标没有立即变化 | Windows 图标缓存未刷新 | 重命名 EXE、换目录查看或重启资源管理器 |
 
-手动导入 ZIP/CSV 始终可用，不依赖 Playwright。
-
----
-
-## 自动刷新
-
-三种触发方式：
-
-- 手动点击右上角 ↻ 按钮
-- 启动后 1.5 秒自动刷新（可在设置中关闭）
-- 定时自动刷新（5/10/30/60 分钟，可在设置中关闭）
-
----
-
-## 常见 API 错误提示
+## 常见 API 错误
 
 - **401**：API Key 错误或已失效
 - **402**：账户余额不足
@@ -215,24 +336,21 @@ dist\DeepSeek Monitor\
 - 网络连接失败：检查网络后重试
 - 请求超时：稍后重试
 
----
-
 ## 技术栈
 
 | 层 | 技术 |
 |---|---|
-| UI | PySide6-Essentials 6.7 |
-| HTTP | requests |
-| 浏览器自动化 | Playwright，优先使用系统默认 Edge / Chrome |
-| 凭据管理 | keyring (Windows Credential Manager) |
+| UI | PySide6-Essentials 6.7.3 |
+| HTTP | requests 2.32.3 |
+| 浏览器自动化 | Playwright 1.49.1 |
+| 凭据管理 | keyring 25.5.0 |
 | 数据存储 | SQLite |
-| 配置 | JSON + keyring |
-| 打包 | PyInstaller (onedir) |
+| 配置 | JSON + Windows Credential Manager |
+| 打包 | PyInstaller 6.10.0 |
 
----
+## 后续目标
 
-## 后续预留
-
-- 最小化到系统托盘
-- 开机自启
-- 接入真实 DeepSeek 调用脚本，自动记录 token 用量
+- 接入真实 DeepSeek 调用脚本，自动写入 token 用量到 `usage.db`
+- 优化自动同步失败诊断
+- 可选制作无 Playwright 的 Lite 版，进一步减小打包体积
+- 将当前托盘逻辑从 `app.py` 整理到 `tray.py`

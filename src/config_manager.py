@@ -45,8 +45,10 @@ class AppConfig:
         兼容旧配置字段。新版本优先使用系统凭据保存 API Key。
     api_base_url:
         DeepSeek API 基础地址，通常不用改。
-    auto_start:
-        是否开机自启。
+    autostart_enabled:
+        是否启用 Windows 开机自启。
+    start_minimized_to_tray:
+        启动后是否直接进入系统托盘。
     refresh_interval_minutes:
         余额刷新间隔（分钟）。
     always_on_top:
@@ -68,6 +70,8 @@ class AppConfig:
     api_key: str = ""
     api_base_url: str = "https://api.deepseek.com"
     auto_start: bool = False
+    autostart_enabled: bool = False
+    start_minimized_to_tray: bool = False
     refresh_interval_minutes: int = 10
     always_on_top: bool = False
     balance_warning_yellow: float = 5.0
@@ -171,6 +175,13 @@ class ConfigManager:
                 "api_base_url", "https://api.deepseek.com"
             )),
             auto_start=bool(data.get("auto_start", False)),
+            autostart_enabled=bool(data.get(
+                "autostart_enabled",
+                data.get("auto_start", False),
+            )),
+            start_minimized_to_tray=bool(data.get(
+                "start_minimized_to_tray", False
+            )),
             refresh_interval_minutes=int(data.get(
                 "refresh_interval_minutes", 10
             )),
@@ -256,6 +267,8 @@ def main() -> None:
     print(f"API Key：{masked_key}")
     print(f"API 地址：{config.api_base_url}")
     print(f"开机自启：{config.auto_start}")
+    print(f"开机自启（新字段）：{config.autostart_enabled}")
+    print(f"启动最小化到托盘：{config.start_minimized_to_tray}")
     print(f"启动自动刷新：{config.auto_refresh_on_startup}")
     print(f"定时刷新：{config.scheduled_refresh_enabled}")
     print(f"刷新间隔：{config.refresh_interval_minutes} 分钟")

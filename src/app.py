@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from src.app_data import get_logs_dir
 from src.api_client import BalanceResult
+from src.autostart_manager import AutoStartError, AutoStartManager
 from src.config_manager import ConfigManager
 from src.database import UsageDatabase
 from src.styles import APP_STYLE
@@ -67,6 +68,9 @@ class SettingsDialog(QDialog):
         scheduled_refresh_enabled: bool = True,
         silent_usage_sync_enabled: bool = True,
         hide_taskbar_icon: bool = False,
+        autostart_enabled: bool = False,
+        start_minimized_to_tray: bool = False,
+        startup_command: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -99,6 +103,12 @@ class SettingsDialog(QDialog):
         self.scheduled_refresh_checkbox.setChecked(scheduled_refresh_enabled)
         self.silent_usage_sync_checkbox = QCheckBox("刷新时自动静默同步 DeepSeek Usage")
         self.silent_usage_sync_checkbox.setChecked(silent_usage_sync_enabled)
+        self.autostart_checkbox = QCheckBox("开机自启")
+        self.autostart_checkbox.setChecked(autostart_enabled)
+        command_tip = startup_command or "当前系统不支持开机自启"
+        self.autostart_checkbox.setToolTip(f"当前启动命令：{command_tip}")
+        self.start_minimized_checkbox = QCheckBox("启动后最小化到托盘")
+        self.start_minimized_checkbox.setChecked(start_minimized_to_tray)
         self.hide_taskbar_checkbox = QCheckBox("隐藏任务栏图标，仅显示托盘图标")
         self.hide_taskbar_checkbox.setChecked(hide_taskbar_icon)
 
@@ -133,6 +143,8 @@ class SettingsDialog(QDialog):
         layout.addWidget(self.auto_refresh_checkbox)
         layout.addWidget(self.scheduled_refresh_checkbox)
         layout.addWidget(self.silent_usage_sync_checkbox)
+        layout.addWidget(self.autostart_checkbox)
+        layout.addWidget(self.start_minimized_checkbox)
         layout.addWidget(self.hide_taskbar_checkbox)
         layout.addWidget(self.always_on_top_checkbox)
         layout.addWidget(warning_label)
@@ -184,10 +196,11 @@ class SettingsDialog(QDialog):
 class DeepSeekMonitorWindow(QMainWindow):
     """DeepSeek Monitor 主窗口。"""
 
-    def __init__(self) -> None:
+    def __init__(self, startup: bool = False) -> None:
         super().__init__()
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load()
+        self.started_from_autostart = startup
         self.database = UsageDatabase()
         self.balance_worker: BalanceRefreshWorker | None = None
         self.usage_sync_worker: UsageSilentSyncWorker | None = None
@@ -224,6 +237,8 @@ class DeepSeekMonitorWindow(QMainWindow):
             QTimer.singleShot(1500, lambda: self.refresh_all(trigger="startup"))
 
         self._startup_browser_check()
+        if startup:
+            self._write_app_log("Application started with --startup")
 
     def _set_window_icon(self) -> None:
         """设置窗口和任务栏图标。"""
@@ -787,6 +802,8 @@ class DeepSeekMonitorWindow(QMainWindow):
     def _open_settings(self) -> None:
         """打开设置窗口。"""
         self.config = self.config_manager.load()
+        autostart_enabled = AutoStartManager.is_enabled()
+        self.config.autostart_enabled = autostart_enabled
         dialog = SettingsDialog(
             masked_api_key=self.config_manager.get_masked_api_key(),
             refresh_interval_minutes=self.config.refresh_interval_minutes,
@@ -796,6 +813,9 @@ class DeepSeekMonitorWindow(QMainWindow):
             scheduled_refresh_enabled=self.config.scheduled_refresh_enabled,
             silent_usage_sync_enabled=self.config.silent_usage_sync_enabled,
             hide_taskbar_icon=self.config.hide_taskbar_icon,
+            autostart_enabled=autostart_enabled,
+            start_minimized_to_tray=self.config.start_minimized_to_tray,
+            startup_command=AutoStartManager.get_startup_command(),
             parent=self,
         )
         dialog.clear_usage_requested.connect(self._clear_local_usage_data)
@@ -812,6 +832,18 @@ class DeepSeekMonitorWindow(QMainWindow):
             self.config.scheduled_refresh_enabled = dialog.scheduled_refresh_checkbox.isChecked()
             self.config.silent_usage_sync_enabled = dialog.silent_usage_sync_checkbox.isChecked()
             self.config.hide_taskbar_icon = dialog.hide_taskbar_checkbox.isChecked()
+            self.config.start_minimized_to_tray = dialog.start_minimized_checkbox.isChecked()
+            self.config.autostart_enabled = dialog.autostart_checkbox.isChecked()
+            self.config.auto_start = self.config.autostart_enabled
+            try:
+                if self.config.autostart_enabled:
+                    AutoStartManager.enable()
+                else:
+                    AutoStartManager.disable()
+            except AutoStartError as error:
+                self._write_app_log(f"Autostart setting failed: {error}")
+                QMessageBox.warning(self, "开机自启失败", str(error))
+                return
             self.config_manager.save(self.config)
             self._apply_always_on_top(self.config.always_on_top)
             self.apply_taskbar_visibility()
@@ -881,15 +913,25 @@ class DeepSeekMonitorWindow(QMainWindow):
 
     def _write_taskbar_log(self, hidden: bool) -> None:
         """记录任务栏图标显示状态，不包含敏感信息。"""
+        self._write_app_log(f"Taskbar icon hidden: {str(hidden).lower()}")
+
+    def _write_app_log(self, message: str) -> None:
+        """写入普通运行日志，不包含敏感信息。"""
         try:
             logs_dir = get_logs_dir()
             logs_dir.mkdir(parents=True, exist_ok=True)
             log_file = logs_dir / "app.log"
-            line = f"{datetime.now().isoformat(timespec='seconds')} Taskbar icon hidden: {str(hidden).lower()}\n"
+            line = f"{datetime.now().isoformat(timespec='seconds')} {message}\n"
             with log_file.open("a", encoding="utf-8") as file:
                 file.write(line)
         except OSError:
             return
+
+    def should_start_hidden(self) -> bool:
+        """判断启动时是否直接进入托盘。"""
+        if self.tray_icon is None:
+            return False
+        return bool(self.started_from_autostart or self.config.start_minimized_to_tray)
 
     def _show_balance_warning(self, total_balance: float | None) -> None:
         """根据余额显示预警提示。"""
@@ -995,7 +1037,7 @@ class DeepSeekMonitorWindow(QMainWindow):
             event.accept()
             return
 
-        if self.config.hide_taskbar_icon and self.tray_icon is not None:
+        if self.tray_icon is not None:
             event.ignore()
             self.hide()
             return
@@ -1007,9 +1049,13 @@ class DeepSeekMonitorWindow(QMainWindow):
         QApplication.quit()
 
 
-def run_app() -> None:
+def run_app(startup: bool = False) -> None:
     """启动 PySide6 应用。"""
     app = QApplication([])
-    window = DeepSeekMonitorWindow()
-    window.show()
+    app.setQuitOnLastWindowClosed(False)
+    window = DeepSeekMonitorWindow(startup=startup)
+    if window.should_start_hidden():
+        window.hide()
+    else:
+        window.show()
     app.exec()
