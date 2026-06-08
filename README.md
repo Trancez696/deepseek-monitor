@@ -45,7 +45,8 @@ deepseek-monitor/
     workers.py              # 后台线程
     widgets.py              # 自定义 UI 组件
     styles.py               # QSS 样式
-    tray.py                 # 预留文件，当前托盘逻辑在 app.py
+    sync_diagnostic.py      # 自动同步失败诊断
+    tray.py                 # 系统托盘管理 (TrayManager)
   assets/
     icon.png
     icon.ico
@@ -413,4 +414,3 @@ cd "D:\DeepSeek Monitor\deepseek-monitor"
 
 ## 后续目标
 - 可选制作无 Playwright 的 Lite 版，进一步减小打包体积
-- 将当前托盘逻辑从 `app.py` 整理到 `tray.py`
