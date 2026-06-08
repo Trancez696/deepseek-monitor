@@ -673,20 +673,25 @@ class DeepSeekMonitorWindow(QMainWindow):
         self.month_card.set_value(format_money(month_cost))
 
         summaries = {summary.model: summary for summary in self.database.get_model_summaries()}
-        max_tokens = max((summary.total_tokens for summary in summaries.values()), default=1)
+        total_tokens = sum(summary.total_tokens for summary in summaries.values())
 
         flash_summary = summaries.get("V4 Flash")
         pro_summary = summaries.get("V4 Pro")
 
+        flash_tokens = flash_summary.total_tokens if flash_summary else 0
+        pro_tokens = pro_summary.total_tokens if pro_summary else 0
+
         self.flash_card.update_usage(
-            tokens=flash_summary.total_tokens if flash_summary else 0,
+            tokens=flash_tokens,
             estimated_cost=flash_summary.estimated_cost if flash_summary else 0,
-            progress=self._progress_from_tokens(flash_summary.total_tokens if flash_summary else 0, max_tokens),
+            progress=self._pct_to_progress(flash_tokens, total_tokens),
+            percentage=self._pct_to_display(flash_tokens, total_tokens),
         )
         self.pro_card.update_usage(
-            tokens=pro_summary.total_tokens if pro_summary else 0,
+            tokens=pro_tokens,
             estimated_cost=pro_summary.estimated_cost if pro_summary else 0,
-            progress=self._progress_from_tokens(pro_summary.total_tokens if pro_summary else 0, max_tokens),
+            progress=self._pct_to_progress(pro_tokens, total_tokens),
+            percentage=self._pct_to_display(pro_tokens, total_tokens),
         )
 
         chart_data = self.database.get_last_7_days_cost()
@@ -753,23 +758,23 @@ class DeepSeekMonitorWindow(QMainWindow):
 
         flash_stats = self._find_imported_model(stats, ["flash"])
         pro_stats = self._find_imported_model(stats, ["pro"])
-        max_tokens = max(
-            int(flash_stats.get("tokens", 0)),
-            int(pro_stats.get("tokens", 0)),
-            1,
-        )
+        flash_tokens = int(flash_stats.get("tokens", 0))
+        pro_tokens = int(pro_stats.get("tokens", 0))
+        total_tokens = flash_tokens + pro_tokens
 
         self.flash_card.update_usage(
-            tokens=int(flash_stats.get("tokens", 0)),
+            tokens=flash_tokens,
             estimated_cost=float(flash_stats.get("cost", 0)),
-            progress=self._progress_from_tokens(int(flash_stats.get("tokens", 0)), max_tokens),
+            progress=self._pct_to_progress(flash_tokens, total_tokens),
             requests=int(flash_stats.get("requests", 0)),
+            percentage=self._pct_to_display(flash_tokens, total_tokens),
         )
         self.pro_card.update_usage(
-            tokens=int(pro_stats.get("tokens", 0)),
+            tokens=pro_tokens,
             estimated_cost=float(pro_stats.get("cost", 0)),
-            progress=self._progress_from_tokens(int(pro_stats.get("tokens", 0)), max_tokens),
+            progress=self._pct_to_progress(pro_tokens, total_tokens),
             requests=int(pro_stats.get("requests", 0)),
+            percentage=self._pct_to_display(pro_tokens, total_tokens),
         )
 
         daily_costs = stats.get("daily_costs", [])
@@ -1142,12 +1147,19 @@ class DeepSeekMonitorWindow(QMainWindow):
                 return f"{parts[0]}-{parts[1]}"
         return "未导入"
 
-    def _progress_from_tokens(self, tokens: int, max_tokens: int) -> int:
-        """根据最大 token 数计算进度条比例。"""
-        if max_tokens <= 0:
+    @staticmethod
+    def _pct_to_progress(model_tokens: int, total_tokens: int) -> int:
+        """计算进度条整数值（0-100）。"""
+        if total_tokens <= 0:
             return 0
+        return min(100, int(model_tokens / total_tokens * 100))
 
-        return min(100, int(tokens / max_tokens * 100))
+    @staticmethod
+    def _pct_to_display(model_tokens: int, total_tokens: int) -> float:
+        """计算百分比显示值（保留 1 位小数）。"""
+        if total_tokens <= 0:
+            return 0.0
+        return round(model_tokens / total_tokens * 100, 1)
 
     def paintEvent(self, event) -> None:  # noqa: N802
         """绘制深蓝绿色渐变背景。"""

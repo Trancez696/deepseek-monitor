@@ -114,7 +114,7 @@ class ModelUsageCard(GlassCard):
 
         self.update_usage(tokens, estimated_cost, progress)
 
-    def update_usage(self, tokens: int, estimated_cost: float, progress: int, requests: int = 0) -> None:
+    def update_usage(self, tokens: int, estimated_cost: float, progress: int, requests: int = 0, percentage: float = 0.0) -> None:
         """更新模型卡片显示的数据。"""
         if tokens <= 0:
             self.cost_label.setText("")
@@ -126,7 +126,8 @@ class ModelUsageCard(GlassCard):
 
         self.cost_label.setText(format_money(estimated_cost))
         request_text = f"请求 {requests:,} 次 · " if requests else ""
-        self.token_label.setText(f"{request_text}{tokens:,} tokens")
+        pct_text = f" · {percentage:.1f}%" if percentage > 0 else ""
+        self.token_label.setText(f"{request_text}{tokens:,} tokens{pct_text}")
         self.progress_bar.setEnabled(True)
         self.progress_bar.show()
         self.progress_bar.setValue(progress)
